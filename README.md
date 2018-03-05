@@ -1,0 +1,2 @@
+# generate_video_from_picture
+generate_video_from_picture，通过ffmpeg将几张tup生成视频Demo
