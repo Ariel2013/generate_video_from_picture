@@ -21,4 +21,4 @@
 - [ ] 图片分辨率自适应
 - [ ] 外部子视频嵌入合成
  
-
+[**click here for more**](http://www.xiaochundan.com/?p=12)
