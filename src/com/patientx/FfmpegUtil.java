@@ -1,8 +1,11 @@
 package com.patientx;
 
+import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.LineNumberReader;
 import java.io.UnsupportedEncodingException;
@@ -84,16 +87,16 @@ public class FfmpegUtil {
 		}
 	}
 	
-	public static void build(String folderPath, String title, String time) throws IOException {
+	public static void build(String folderPath, String title, String time, boolean autoOrient) throws IOException {
 		File folder = new File(folderPath);
 		List<File> files = new ArrayList<File>();
-		handleFiles(folder, files);
+		handleFiles(folder, files, autoOrient);
 		String outputPath = folderPath + OUTPUT_PATH;
 		handleBaseFile(outputPath);
 		StringBuilder nameStr = new StringBuilder();
 		float totalTime = 0.0f;
 		for (int i = 0; i < files.size(); i++) {
-			int type = new Random().nextInt(6) + 1;
+			int type = new Random().nextInt(5) + 1;
 			String commandStr = null;
 			String fileFullPath = folderPath + files.get(i).getName();
 			String outFullPath = outputPath + i + ".mp4";
@@ -106,12 +109,13 @@ public class FfmpegUtil {
 				singleTime = 2.5f;
 			}
 			totalTime += singleTime;
+			boolean vertical = getImgWidth(files.get(i)) == 3016;
 			if (type == 5) {
-				commandStr = buildFadeInStr(fileFullPath, outFullPath, singleTime);
-			} else if (type == 6) {
-				commandStr = buildZoomOutStr(fileFullPath, outFullPath, singleTime);
+				commandStr = buildZoomOutStr(fileFullPath, outFullPath, singleTime, vertical);
+//				commandStr = buildFadeInStr(fileFullPath, outFullPath, singleTime, vertical);
+//			} else if (type == 6) {
 			} else {
-				commandStr = buildTranslationStr(fileFullPath, outFullPath, type, singleTime);
+				commandStr = buildTranslationStr(fileFullPath, outFullPath, type, singleTime, vertical);
 			}
 			exeCmd(commandStr);
 			nameStr.append("file '" + i + ".mp4'\n");
@@ -129,11 +133,11 @@ public class FfmpegUtil {
 		}
 		mergeVideos(outputPath);
 		mergeMusic(outputPath, folderPath + "music.mp3", files.size(), totalTime);
-		deleteTempFiles(outputPath);
+//		deleteTempFiles(outputPath);
 		log.info("finish.");
 	}
 
-	private static void handleFiles(File folder, List<File> files) {
+	private static void handleFiles(File folder, List<File> files, boolean autoOrient) {
 		if (folder.exists() && folder.isDirectory()) {
 			File[] listFiles = folder.listFiles();
 			if (listFiles != null && listFiles.length > 0) {
@@ -150,8 +154,10 @@ public class FfmpegUtil {
 		Iterator<File> iterator = files.iterator();
 		while (iterator.hasNext()) {
 			File file = (File) iterator.next();
-			if (file.isDirectory() || !file.getName().endsWith(".jpg") || !file.getName().endsWith(".png")) {
+			if (file.isDirectory() || (!file.getName().endsWith(".jpg") && !file.getName().endsWith(".png"))) {
 				iterator.remove();
+			} else if (autoOrient) {
+				exeCmd("magick " + file.getAbsolutePath() + " -auto-orient " + file.getAbsolutePath());
 			}
 		}
 		if (SetUtils.isEmpty(files)) {
@@ -181,12 +187,19 @@ public class FfmpegUtil {
 	 * @param imagePath
 	 * @param outputPath
 	 * @param singleTime 
+	 * @param vertical 
 	 * @return
 	 * Create by XuShenglai at 2018年2月28日 下午3:44:16
 	 */
-	private static String buildFadeInStr(String imagePath, String outputPath, float singleTime) {
-		String commandStr = FFMPEG_EXEC_PATH + " -threads " + THREAD_COUNT + " -loop 1 -y -r 25 -i " + imagePath + " -vf fade=in:0:25 -t " + singleTime + " -s "
-				+ WIDTH + "x" + HEIGHT + " " + outputPath;
+	private static String buildFadeInStr(String imagePath, String outputPath, float singleTime, boolean vertical) {
+		String width = String.valueOf(WIDTH);
+		String height = String.valueOf(HEIGHT);
+		if (vertical) {
+			int realWidth = (int) (HEIGHT * HEIGHT / WIDTH);
+			width = String.valueOf(realWidth);
+			height += ",pad=" + WIDTH + ":" + HEIGHT + ":" + (WIDTH-realWidth) / 2 + ":0:black";
+		}
+		String commandStr = FFMPEG_EXEC_PATH + " -threads " + THREAD_COUNT + " -loop 1 -y -r 25 -i " + imagePath + " -vf scale='" + width + "x" + height + "' -vf fade=in:0:25 -t " + singleTime + " " + outputPath;
 		return commandStr;
 	}
 	
@@ -195,12 +208,20 @@ public class FfmpegUtil {
 	 * @param imagePath
 	 * @param outputPath
 	 * @param singleTime 
+	 * @param vertical 
 	 * @return
 	 * Create by XuShenglai at 2018年2月28日 下午3:44:04
 	 */
-	private static String buildZoomOutStr(String imagePath, String outputPath, float singleTime) {
-		String commandStr = FFMPEG_EXEC_PATH + " -threads " + THREAD_COUNT + " -y -r 25 -i " + imagePath + " -vf zoompan=z='zoom+0.0003':s='" + WIDTH + "*" + HEIGHT + "' -t "
-				+ singleTime + " -s " + WIDTH + "x" + HEIGHT + " " + outputPath;
+	private static String buildZoomOutStr(String imagePath, String outputPath, float singleTime, boolean vertical) {
+		String width = String.valueOf(WIDTH);
+		String height = String.valueOf(HEIGHT) + "'";
+		if (vertical) {
+			int realWidth = (int) (HEIGHT * HEIGHT / WIDTH);
+			width = String.valueOf(realWidth);
+			height += ",pad='" + WIDTH + ":" + HEIGHT + ":" + (WIDTH-realWidth) / 2 + ":0:black'";
+		}
+		String commandStr = FFMPEG_EXEC_PATH + " -threads " + THREAD_COUNT + " -y -r 25 -i " + imagePath + " -vf zoompan=z='zoom+0.0003':s='" + width + "*" + height + " -t "
+				+ singleTime + " " + outputPath;
 		return commandStr;
 	}
 	
@@ -210,10 +231,11 @@ public class FfmpegUtil {
 	 * @param outputPath
 	 * @param direction
 	 * @param singleTime 
+	 * @param vertical 
 	 * @return
 	 * Create by XuShenglai at 2018年2月28日 下午3:43:28
 	 */
-	private static String buildTranslationStr(String imagePath, String outputPath, int direction, float singleTime) {
+	private static String buildTranslationStr(String imagePath, String outputPath, int direction, float singleTime, boolean vertical) {
 		String directionStr = null;
 		switch (direction) {
 		case DIRECTION_LEFT:
@@ -231,8 +253,15 @@ public class FfmpegUtil {
 		default:
 			break;
 		}
+		String width = String.valueOf(WIDTH);
+		String height = String.valueOf(HEIGHT) + "'";
+		if (vertical) {
+			int realWidth = (int) (HEIGHT * HEIGHT / WIDTH);
+			width = String.valueOf(realWidth);
+			height += ",pad='" + WIDTH + ":" + HEIGHT + ":" + (WIDTH-realWidth) / 2 + ":0:black'";
+		}
 		String commandStr = FFMPEG_EXEC_PATH + " -threads " + THREAD_COUNT + " -y -r 25 -i " + imagePath
-				+ " -vf zoompan=z=1.1:" + directionStr + ":s='" + WIDTH + "*" + HEIGHT + "' -t " + singleTime + " -s " + WIDTH + "x" + HEIGHT + " " + outputPath;
+				+ " -vf zoompan=z=1.1:" + directionStr + ":s='" + width + "*" + height + " -t " + singleTime + " " + outputPath;
 		return commandStr;
 	}
 	
@@ -269,10 +298,10 @@ public class FfmpegUtil {
 		textContent = new String(textContent.getBytes(), "utf-8");
 		String commandStr = FFMPEG_EXEC_PATH + " -threads " + THREAD_COUNT + " -y -i " + inputPath + " -vf drawtext=" + fontFilePath + ":text='"
 				+ textContent + "':x=(w-text_w)/2:y='(h-text_h)/2+50':fontsize=28:alpha='if(lt(t,0.25),0,t-0.25)':fontcolor=white:shadowy=2 "
-				+ outputPath + File.separator + "temp.mp4";
+				+ outputPath + "temp.mp4";
 		exeCmd(commandStr);
 		String rmString = "rm " + inputPath;
-		String renameStr = "mv " + outputPath + File.separator + "temp.mp4 " + inputPath;
+		String renameStr = "mv " + outputPath + "temp.mp4 " + inputPath;
 		exeCmd(rmString);
 		exeCmd(renameStr);
 	}
@@ -283,8 +312,8 @@ public class FfmpegUtil {
 	 * Create by XuShenglai at 2018年3月1日 下午2:35:33
 	 */
 	private static void mergeVideos(String outputPath) {
-		String commandStr = FFMPEG_EXEC_PATH + " -threads " + THREAD_COUNT + " -y -f concat -i " + outputPath + File.separator + FILE_NAME_LIST + " -c copy "
-				+ outputPath + File.separator + "nomusic.mp4";
+		String commandStr = FFMPEG_EXEC_PATH + " -threads " + THREAD_COUNT + " -y -f concat -i " + outputPath + FILE_NAME_LIST + " -c copy "
+				+ outputPath + "nomusic.mp4";
 		exeCmd(commandStr);
 	}
 	
@@ -297,8 +326,8 @@ public class FfmpegUtil {
 	 * @param totalTime 
 	 */
 	private static void mergeMusic(String outputPath, String musicFilePath, int fileCount, float totalTime) {
-		String commandStr = FFMPEG_EXEC_PATH + " -threads " + THREAD_COUNT + " -y -i " + outputPath + File.separator + "nomusic.mp4 -i " + musicFilePath
-				+ " -t " + fileCount * totalTime + " " + outputPath + File.separator + RESULT_NAME;
+		String commandStr = FFMPEG_EXEC_PATH + " -threads " + THREAD_COUNT + " -y -i " + outputPath + "nomusic.mp4 -i " + musicFilePath
+				+ " -t " + totalTime + " " + outputPath + RESULT_NAME;
 		exeCmd(commandStr);
 	}
 	
@@ -312,12 +341,32 @@ public class FfmpegUtil {
 			File[] listFiles = folder.listFiles();
 			if (listFiles != null && listFiles.length > 0) {
 				for (int i = 0; i < listFiles.length; i++) {
-					if (listFiles[i].exists() && listFiles[i].getName() != RESULT_NAME) {
+					if (listFiles[i].exists() && !listFiles[i].getName().equals(RESULT_NAME)) {
 						listFiles[i].delete();
 					}
 				}
 			}
 		}
 	}
+	
+	 /**
+     * 获取图片宽度
+     * @param file  图片文件
+     * @return 宽度
+     */
+    public static int getImgWidth(File file) {
+        InputStream is = null;
+        BufferedImage src = null;
+        int ret = -1;
+        try {
+            is = new FileInputStream(file);
+            src = javax.imageio.ImageIO.read(is);
+            ret = src.getWidth(null); // 得到源图宽
+            is.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return ret;
+    }
 	
 }
